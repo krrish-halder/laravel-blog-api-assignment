@@ -4,7 +4,9 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Blog;
+use App\Models\Like;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 
 class BlogController extends Controller
@@ -12,7 +14,14 @@ class BlogController extends Controller
     //? List all blogs
     public function index(Request $request)
     {
-        $query = Blog::with('user', 'likes')->withCount('likes');
+
+        // !! Used 'withExists' to check if the blog is liked by the authenticated user
+        $query = Blog::with('user', 'likes')->withCount('likes')
+            ->withExists([
+                'likes as is_liked' => function ($q) {
+                    $q->where('user_id', Auth::id());
+                }
+            ]);
 
         //* Search by title or content
         if ($search = $request->query('search')) {
@@ -32,6 +41,26 @@ class BlogController extends Controller
         }
 
         $blogs = $query->paginate(10);
+
+        // !! This is an alternative option which I implemented
+
+        // $user = Auth::user();
+        // $likedBlogIds = [];
+
+        // if ($user) {
+        //     $blogIds = $blogs->pluck('id');
+
+        //     $likedBlogIds = Like::where('user_id', $user->id)
+        //         ->where('likeable_type', Blog::class)
+        //         ->whereIn('likeable_id', $blogIds)
+        //         ->pluck('likeable_id')
+        //         ->toArray();
+        // }
+        //
+        // $blogs->getCollection()->transform(function ($blog) use ($likedBlogIds) {
+        //     $blog->is_liked = in_array($blog->id, $likedBlogIds);
+        //     return $blog;
+        // });
 
         return response()->json($blogs);
     }
@@ -67,6 +96,14 @@ class BlogController extends Controller
     public function show($id)
     {
         $blog = Blog::with('user', 'likes')->withCount('likes')->findOrFail($id);
+        $user = Auth::user();
+        $blog->is_liked = false;
+        if ($user) {
+            $blog->is_liked = Like::where('user_id', $user->id)
+                ->where('likeable_type', Blog::class)
+                ->where('likeable_id', $blog->id)
+                ->exists();
+        }
 
         return response()->json($blog);
     }
