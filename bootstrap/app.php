@@ -6,6 +6,8 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use App\Traits\ApiExceptionHandler;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -18,17 +20,26 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(HandleLocalization::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->render(function (AuthenticationException $e, $request) {
-            if ($request->expectsJson()) {
-                return new JsonResponse([
-                    'status' => false,
-                    'message' => 'Unauthorized access. Please provide a valid API token.',
-                ], 401);
-            }
+        // $exceptions->render(function (AuthenticationException $e, $request) {
+        //     if ($request->expectsJson()) {
+        //         return new JsonResponse([
+        //             'status' => false,
+        //             'message' => 'Unauthorized access. Please provide a valid API token.',
+        //         ], 401);
+        //     }
 
-            return response()->json([
-                'status' => false,
-                'message' => 'Unauthorized access. Please log in.',
-            ], 401);
-        });
+        //     return response()->json([
+        //         'status' => false,
+        //         'message' => 'Unauthorized access. Please log in.',
+        //     ], 401);
+        // });
+
+        // $exceptions->render(function (NotFoundHttpException $e, $request) {
+        //     return response()->json([
+        //         'status' => false,
+        //         'message' => 'The requested route was not found.',
+        //     ], 404);
+        // });
+
+        ApiExceptionHandler::handle($exceptions);
     })->create();
