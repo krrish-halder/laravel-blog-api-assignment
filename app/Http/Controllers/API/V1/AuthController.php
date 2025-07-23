@@ -9,32 +9,37 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use App\Traits\ApiResponser;
 
 class AuthController extends Controller
 {
-
+    use ApiResponser;
     //? Register User
     public function register(RegisterRequest $request)
     {
-
-        $data = $request->validated();
-
-        // Check if user already exists
-        if (User::where('email', $data['email'])->exists()) {
-            return response()->json([
-                'message' => __('messages.user_exists', ['email' => $data['email']]),
-            ], 422);
+        if (User::where('email', $request->email)->exists()) {
+            // return response()->json([
+            //     'message' => __('messages.user_exists', ['email' => $request->email]),
+            // ], 422);
+            return $this->errorResponse(__('messages.user_exists', ['email' => $request->email]), 422);
         }
 
-        $user = new User($data);
-        $user->password = Hash::make($data['password']);
+        $user = new User();
+        $user->name = $request->name;
+        $user->email = $request->email;
+        $user->password = Hash::make($request->password);
 
         $user->save();
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        return response()->json([
-            'message' => __('messages.register_success'),
+        // return response()->json([
+        //     'message' => __('messages.register_success'),
+        //     'user' => $user,
+        //     'token' => $token,
+        // ], 201);
+
+        return $this->successResponse(__('messages.register_success'), [
             'user' => $user,
             'token' => $token,
         ], 201);
@@ -43,20 +48,20 @@ class AuthController extends Controller
     //? Login User
     public function login(LoginRequest $request)
     {
-        $data = $request->validated();
 
-        $user = User::where('email', $data['email'])->first();
+        $user = User::where('email', $request->email)->first();
 
         if (!$user) {
             return response()->json([
                 'message' => 'User not found',
+                'status' => '0'
             ], 404);
         }
 
-        if (Hash::check($data['password'], $user->password) === false) {
+        if (Hash::check($request->password, $user->password) === false) {
             return response()->json([
-                    'message' => __('messages.invalid_credentials'),
-                ], 422);
+                'message' => __('messages.invalid_credentials'),
+            ], 422);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -73,6 +78,7 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['message' => 'Logged out successfully']);
+        // return response()->json(['message' => 'Logged out successfully']);
+        return $this->successResponse(__('messages.logout_success'));
     }
 }

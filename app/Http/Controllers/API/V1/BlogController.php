@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\BlogListRequest;
 use App\Http\Requests\StoreBlogRequest;
 use App\Http\Requests\UpdateBlogRequest;
 use App\Models\Blog;
@@ -10,14 +11,17 @@ use App\Models\Like;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Gate;
+use App\Traits\ApiResponser;
 
 class BlogController extends Controller
 {
+    use ApiResponser;
     //? List all blogs
-    public function index(Request $request)
+    public function index(BlogListRequest $request)
     {
+        // TODO: Refactor this method to use the ApiResponser trait for consistent API responses
 
-        // !! Used 'withExists' to check if the blog is liked by the authenticated user
         $query = Blog::with('user', 'likes')->withCount('likes')
             ->withExists([
                 'likes as is_liked' => function ($q) {
@@ -25,8 +29,10 @@ class BlogController extends Controller
                 }
             ]);
 
-        //* Search by title or content
-        if ($search = $request->query('search')) {
+
+        //* Search
+        if (!empty($request->search)) {
+            $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'LIKE', "%$search%")
                     ->orWhere('content', 'LIKE', "%$search%");
@@ -37,43 +43,32 @@ class BlogController extends Controller
             });
         }
 
-        //* Sort by likes or latest
-        $sort = $request->query('sort', Blog::SORT_LATEST);
+        //* Sort
 
-        if ($sort === Blog::SORT_MOST_LIKED) {
+        $sort = $request->sort ?? Blog::LATEST;
+
+        if ($sort === Blog::MOST_LIKED) {
             $query->orderBy('likes_count', 'desc');
-        } else { // Default to latest
+        } else {
             $query->latest();
         }
 
-        $blogs = $query->paginate(10);
+        $page = $request->page;
+        $perPage = $request->per_page ?? 10;
 
-        // !! This is an alternative option which I implemented
-
-        // $user = Auth::user();
-        // $likedBlogIds = [];
-
-        // if ($user) {
-        //     $blogIds = $blogs->pluck('id');
-
-        //     $likedBlogIds = Like::where('user_id', $user->id)
-        //         ->where('likeable_type', Blog::class)
-        //         ->whereIn('likeable_id', $blogIds)
-        //         ->pluck('likeable_id')
-        //         ->toArray();
-        // }
-        //
-        // $blogs->getCollection()->transform(function ($blog) use ($likedBlogIds) {
-        //     $blog->is_liked = in_array($blog->id, $likedBlogIds);
-        //     return $blog;
-        // });
-
-        return response()->json($blogs);
+        if ($page || $request->has('per_page')) {
+            $blogs = $query->paginate($perPage);
+        } else {
+            $blogs = $query->get();
+        }
+        return $this->successResponse('Blogs Fetched', $blogs);
     }
 
     // ? Store a Blog
     public function store(StoreBlogRequest $request)
     {
+
+        $user = Auth::user();
         $data = $request->validated();
 
         $imagePath = null;
@@ -82,16 +77,14 @@ class BlogController extends Controller
         }
 
         $blog = Blog::create([
-            'user_id' => $request->user()->id,
+            'user_id' => $user->id,
             'title' => $data['title'],
             'content' => $data['content'],
             'image_path' => $imagePath,
         ]);
+        $blog->save();
 
-        return response()->json([
-            'message' => __('messages.blog_created'),
-            'blog' => $blog
-        ], 201);
+        return $this->successResponse('Blog created successfully', $blog, 201);
     }
 
     //? Show Blog
@@ -100,14 +93,14 @@ class BlogController extends Controller
         $blog = Blog::with('user', 'likes')->withCount('likes')->findOrFail($id);
         $user = Auth::user();
         $blog->is_liked = false;
-        if ($user) {
-            $blog->is_liked = Like::where('user_id', $user->id)
-                ->where('likeable_type', Blog::class)
-                ->where('likeable_id', $blog->id)
-                ->exists();
-        }
 
-        return response()->json($blog);
+        $blog->loadExists([
+            'likes as is_liked' => function ($q) use ($user) {
+                $q->where('user_id', $user ? $user->id : null);
+            }
+        ]);
+
+        return $this->successResponse('Blog fetched successfully', $blog);
     }
 
     // ? Update Blog
@@ -116,10 +109,9 @@ class BlogController extends Controller
         $data = $request->validated();
         $blog = Blog::findOrFail($id);
 
-        if ($blog->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if (!Gate::allows('update-blog', $blog)) {
+            return response()->json(['message' => 'Unauthorized, You are not the author of this blog'], 403);
         }
-
 
         if ($request->hasFile('image')) {
             if ($blog->image_path) {
@@ -130,7 +122,12 @@ class BlogController extends Controller
         }
 
 
-        $blog->update($data);
+        $blog->update(
+            [
+                'title' => $request->title,
+                'content' => $request->content,
+            ]
+        );
 
         return response()->json([
             'message' => __('Blog updated successfully'),
@@ -142,9 +139,8 @@ class BlogController extends Controller
     public function destroy($id)
     {
         $blog = Blog::findOrFail($id);
-
-        if ($blog->user_id !== request()->user()->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if (!Gate::allows('delete-blog', $blog)) {
+            return response()->json(['message' => 'Unauthorized, You are not the author of this blog'], 403);
         }
 
         if ($blog->image_path) {

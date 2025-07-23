@@ -9,13 +9,9 @@ class Blog extends Model
 {
     use HasFactory;
 
-    public const SORT_LATEST = 'latest';
-    public const SORT_MOST_LIKED = 'most_liked';
+    public const LATEST = 'latest';
+    public const MOST_LIKED = 'most_liked';
 
-    public const SORT_OPTIONS = [
-        self::SORT_LATEST,
-        self::SORT_MOST_LIKED,
-    ];
 
     protected $fillable = ['user_id', 'title', 'content', 'image_path'];
 
