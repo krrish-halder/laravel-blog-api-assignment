@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreBlogRequest;
 use App\Models\Blog;
 use App\Models\Like;
 use Illuminate\Http\Request;
@@ -29,12 +30,16 @@ class BlogController extends Controller
                 $q->where('title', 'LIKE', "%$search%")
                     ->orWhere('content', 'LIKE', "%$search%");
             });
+            $query->orWhereHas('user', function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%$search%")
+                    ->orWhere('email', 'LIKE', "%$search%");
+            });
         }
 
         //* Sort by likes or latest
-        $sort = $request->query('sort', 'latest');
+        $sort = $request->query('sort', Blog::SORT_LATEST);
 
-        if ($sort === 'most_liked') {
+        if ($sort === Blog::SORT_MOST_LIKED) {
             $query->orderBy('likes_count', 'desc');
         } else { // Default to latest
             $query->latest();
@@ -66,13 +71,9 @@ class BlogController extends Controller
     }
 
     // ? Store a Blog
-    public function store(Request $request)
+    public function store(StoreBlogRequest $request)
     {
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'content' => 'required|string',
-            'image' => 'nullable|image|mimes:jpg,jpeg,png|max:10240', // 10MB max
-        ]);
+        $data = $request->validated();
 
         $imagePath = null;
         if ($request->hasFile('image')) {
@@ -81,13 +82,13 @@ class BlogController extends Controller
 
         $blog = Blog::create([
             'user_id' => $request->user()->id,
-            'title' => $validated['title'],
-            'content' => $validated['content'],
+            'title' => $data['title'],
+            'content' => $data['content'],
             'image_path' => $imagePath,
         ]);
 
         return response()->json([
-            'message' => 'Blog created successfully',
+            'message' => __('messages.blog_created'),
             'blog' => $blog
         ], 201);
     }
@@ -109,34 +110,31 @@ class BlogController extends Controller
     }
 
     // ? Update Blog
-    public function update(Request $request, $id)
+    public function update(UpdateBlogRequest  $request, $id)
     {
+        $data = $request->validated();
         $blog = Blog::findOrFail($id);
 
         if ($blog->user_id !== $request->user()->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $validated = $request->validate([
-            'title' => 'sometimes|required|string|max:255',
-            'content' => 'sometimes|required|string',
-            'image' => 'nullable|image|mimes:jpg,jpeg,png|max:10240', // 10MB max
-        ]);
 
         if ($request->hasFile('image')) {
             if ($blog->image_path) {
                 Storage::disk('public')->delete($blog->image_path);
             }
 
-            $blog->image_path = $request->file('image')->store('blog_images', 'public');
+            $data['image_path'] = $request->file('image')->store('blog_images', 'public');
         }
 
-        $blog->update($validated);
+
+        $blog->update($data);
 
         return response()->json([
-            'message' => 'Blog updated successfully',
+            'message' => __('Blog updated successfully'),
             'blog' => $blog
-        ]);
+        ], 200);
     }
 
     //? Delete Blog
